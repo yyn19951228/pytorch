@@ -11,6 +11,9 @@
 #include <ATen/native/batch_norm.h>
 
 #include <vector>
+#ifdef USE_VULKAN
+#include <ATen/native/vulkan/VulkanAten.h>
+#endif
 
 static const int MIOPEN_DIM_MAX = 5;
 
@@ -433,6 +436,17 @@ std::tuple<Tensor, Tensor, Tensor, Tensor, int64_t> _batch_norm_impl_index(
   }
 
   Tensor reserve = at::empty({0}, input.options().dtype(kByte));
+
+  bool use_vulkan = input.is_vulkan();
+  if (use_vulkan) {
+    return std::tuple_cat(
+              at::native::batch_norm_vulkan(
+                input, weight, bias,
+                running_mean, running_var,
+                training, momentum, eps),
+              std::tuple<Tensor>(reserve),
+              std::make_tuple(3));
+  }
 
   bool use_miopen = (input.is_cuda()
                && input.dim() <= MIOPEN_DIM_MAX
