@@ -379,7 +379,8 @@ std::shared_ptr<FutureMessage> TensorPipeAgent::send(
   auto& pendingResponseMessage = clientPipe.pendingResponseMessage_;
 
   auto futureResponseMessage = std::make_shared<AtomicFutureMessage>();
-  requestMessage.setId(nextMessageID_++);
+  auto requestMessageId = nextMessageID_++;
+  requestMessage.setId(requestMessageId);
   pendingResponseMessage[requestMessage.id()] = futureResponseMessage;
 
   futureResponseMessage->futMsg.addCallback([this]() {
@@ -415,7 +416,7 @@ std::shared_ptr<FutureMessage> TensorPipeAgent::send(
   pipeWrite(
       clientPipe.pipe_,
       std::move(requestMessage),
-      [this, &clientPipe, futureResponseMessage](
+      [this, &clientPipe, requestMessageId](
           const tensorpipe::Error& error) mutable {
         if (error) {
           if (error.isOfType<tensorpipe::PipeClosedError>() &&
@@ -426,7 +427,13 @@ std::shared_ptr<FutureMessage> TensorPipeAgent::send(
                          << " encountered error when writing outgoing request: "
                          << error.what();
           }
-          markFutureWithError(std::move(futureResponseMessage), error.what());
+          auto it = clientPipe.pendingResponseMessage_.find(requestMessageId);
+          TORCH_INTERNAL_ASSERT(
+              it != clientPipe.pendingResponseMessage_.end(),
+              "message ID ",
+              requestMessageId,
+              " is not recognized");
+          markFutureWithError(it->second, error.what());
           return;
         }
 
