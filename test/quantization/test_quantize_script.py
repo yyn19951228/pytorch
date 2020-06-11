@@ -12,6 +12,7 @@ from torch.quantization import default_dynamic_qconfig
 from torch.quantization import default_observer
 from torch.quantization import default_per_channel_weight_observer
 from torch.quantization import default_qconfig
+from torch.quantization import default_qat_qconfig
 from torch.quantization import get_default_qconfig
 
 # torch.quantization.quantize_script
@@ -22,6 +23,7 @@ from torch.quantization.quantize_script import quantize_script
 from torch.quantization.quantize_script import prepare_dynamic_script
 from torch.quantization.quantize_script import convert_dynamic_script
 from torch.quantization.quantize_script import quantize_dynamic_script
+from torch.quantization.quantize_script import prepare_qat_script
 
 # Testing utils
 from torch.testing._internal.common_quantization import test_only_eval_fn as _test_only_eval_fn
@@ -2679,3 +2681,29 @@ class TestQuantizeDynamicScript(QuantizationTestCase):
         for x, obs in model._modules._c.items():
             graph_params.append((obs.getattr('3_scale_0'), obs.getattr('3_zero_point_0')))
         self.assertEqual(ref_qparams, graph_params)
+
+class TestQuantizeQATScript(QuantizationTestCase):
+
+    def test_prepare_qat(self):
+        class M(torch.nn.Module):
+            def __init__(self):
+                super(M, self).__init__()
+                self.conv = torch.nn.Conv2d(1, 1, 1)
+                self.bn = torch.nn.BatchNorm2d(1)
+
+            def forward(self, x):
+                x = self.conv(x)
+                x = self.bn(x)
+                return x
+
+        m = torch.jit.script(M())
+        m = prepare_qat_script(m, {'': default_qat_qconfig})
+
+        # TODO(future PR): modify this as needed after we add QAT conv-bn logic
+        assert len(attrs_with_prefix(m, '_observer_')) == 2
+        assert len(attrs_with_prefix(m.conv, '_observer_')) == 1
+        FileCheck().check('FakeQuantize = prim::GetAttr[name="_observer_') \
+                   .check('prim::GetAttr[name="conv"]') \
+                   .check('prim::CallMethod') \
+                   .check_not('Observer = prim::GetAttr[name="_observer_') \
+                   .run(m.graph)

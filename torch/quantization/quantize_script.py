@@ -11,6 +11,7 @@ from torch.jit._recursive import wrap_cpp_module
 class QuantType(enum.IntEnum):
     DYNAMIC = 0
     STATIC = 1
+    QAT = 2
 
 def _check_is_script_module(model):
     if not isinstance(model, torch.jit.ScriptModule):
@@ -36,7 +37,10 @@ def _prepare_script(model, qconfig_dict, inplace=False, quant_type=QuantType.STA
         raise ValueError('qconfig_dict should only contain names(str) as keys.')
     scripted_qconfig_dict = script_qconfig_dict(qconfig_dict)
     torch._C._jit_pass_dedup_module_uses(model._c)
-    model = wrap_cpp_module(torch._C._jit_pass_fold_convbn(model._c))
+    if quant_type != QuantType.QAT:
+        model = wrap_cpp_module(torch._C._jit_pass_fold_convbn(model._c))
+    # TODO(future PR): add new pass for QAT convbn
+    # TODO(future PR): add handling for QAT convbn to observers pass
     return wrap_cpp_module(torch._C._jit_pass_insert_observers(model._c,
                                                                'forward',
                                                                scripted_qconfig_dict,
@@ -48,6 +52,10 @@ def prepare_script(model, qconfig_dict, inplace=False):
 
 def prepare_dynamic_script(model, qconfig_dict, inplace=False):
     return _prepare_script(model, qconfig_dict, inplace, quant_type=QuantType.DYNAMIC)
+
+# Note: in development, not ready for use
+def prepare_qat_script(model, qconfig_dict, inplace=False):
+    return _prepare_script(model, qconfig_dict, inplace, quant_type=QuantType.QAT)
 
 def _convert_script(model, inplace=False, debug=False, quant_type=QuantType.STATIC):
     assert not inplace, "The inplace support is still in development"
