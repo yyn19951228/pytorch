@@ -83,11 +83,21 @@ class _ConvBnNd(nn.modules.conv._ConvNd):
         running_std = torch.sqrt(self.bn.running_var + self.bn.eps)
         scale_factor = self.bn.weight / running_std
         scaled_weight = self.weight_fake_quant(self.weight * scale_factor.reshape([-1, 1, 1, 1]))
-        # this does not include the conv bias
-        conv = self._conv_forward(input, scaled_weight)
-        conv_orig = conv / scale_factor.reshape([1, -1, 1, 1])
-        if self.bias is not None:
-            conv_orig = conv_orig + self.bias.reshape([1, -1, 1, 1])
+
+        # this combines the logic in nn.Conv2d._conv_forward
+        # TODO before land: can remove nn.Conv2d._conv_forward, and
+        # improve this comment
+        padding = self.padding
+        if self.padding_mode != 'zeros':
+            input = F.pad(input, self._reversed_padding_repeated_twice,
+                          mode=self.padding_mode)
+            padding = _pair(0)
+        # call conv with scaled weight, and get the unscaled result
+        conv_orig = \
+            torch.qat_conv2d_and_unscale(input, scaled_weight, scale_factor,
+                                         self.bias, self.stride, padding,
+                                         self.dilation, self.groups)
+        # at this point the conv is unscaled, so can do BN as before
         conv = self.bn(conv_orig)
         return conv
 
