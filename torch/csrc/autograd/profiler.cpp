@@ -220,7 +220,7 @@ struct ProfilerThreadLocalState
           thread_id,
           config_.state == ProfilerState::CUDA);
       evt.updateMemoryStats(alloc_size, device);
-      getEventList(thread_id).record(evt);
+      getEventList(thread_id).record(std::move(evt));
     }
   }
 
@@ -421,7 +421,7 @@ void Event::record(bool record_cuda) {
 double Event::cuda_elapsed_us(const Event & e) {
   TORCH_CHECK(e.has_cuda() && has_cuda(), "Events were not recorded for CUDA");
   TORCH_CHECK(e.device() == device(), "Events are not on the same device");
-  return cuda_stubs->elapsed(cuda_event, e.cuda_event);
+  return cuda_stubs->elapsed(&cuda_event, &e.cuda_event);
 }
 
 CUDAStubs::~CUDAStubs() = default;
